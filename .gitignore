@@ -5,3 +5,5 @@
 .taste-skill/*.log
 .taste-skill/requests.json
 shots/
+.taste-skill/gate.json
+.taste-skill/gate-blocks.json
