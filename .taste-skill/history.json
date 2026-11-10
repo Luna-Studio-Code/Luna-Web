@@ -1,0 +1,49 @@
+{
+  "palettes": [
+    "green-mat-chocolate"
+  ],
+  "types": [
+    "lora"
+  ],
+  "dealt": [
+    "lora",
+    "rethink",
+    "bricolage"
+  ],
+  "photos": [
+    {
+      "trade": "bakery",
+      "draft": true,
+      "lead": "m33603672",
+      "ids": [
+        "m33603672",
+        "m33603558",
+        "m11317510",
+        "m37164269"
+      ],
+      "sections": [
+        "hero",
+        "oven",
+        "oven",
+        "oven",
+        "dough",
+        "dough",
+        "bread",
+        "bread",
+        "bread",
+        "hands",
+        "hands",
+        "detail"
+      ],
+      "seed": "mie5ru",
+      "at": "2026-11-10T07:22:29.731Z"
+    }
+  ],
+  "moments": [
+    {
+      "id": "picture-develops",
+      "at": "2026-11-10T07:37:47.213Z",
+      "seed": "6a32414a"
+    }
+  ]
+}

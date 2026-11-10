@@ -1,0 +1,7 @@
+# 검사 스크립트가 만드는 임시 파일
+.taste-skill/chrome-*/
+.taste-skill/gate/
+.taste-skill/consistency/
+.taste-skill/*.log
+.taste-skill/requests.json
+shots/
