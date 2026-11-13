@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fold-pc · 화면 공유</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f4f4f2; --fg:#1b1b1a; --muted:#6b6b68; --line:#d9d9d5; --accent:#0a6cff; --ok:#1c8a4a; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161617; --fg:#f2f2f0; --muted:#9a9a96; --line:#333336; --accent:#4c93ff; --ok:#4cc27d; } }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--fg);
+         font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif; }
+  main { width:min(560px, 100% - 48px); }
+  h1 { font-size:28px; letter-spacing:-0.02em; margin:0 0 8px; }
+  p { margin:0 0 20px; color:var(--muted); }
+  button { font:inherit; font-weight:600; padding:12px 22px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  ul { list-style:none; padding:0; margin:28px 0 0; border-top:1px solid var(--line); }
+  li { display:flex; justify-content:space-between; gap:16px; padding:12px 0; border-bottom:1px solid var(--line); }
+  li span:last-child { color:var(--muted); text-align:right; }
+  li.ok span:last-child { color:var(--ok); }
+  video { width:100%; margin-top:24px; border-radius:10px; border:1px solid var(--line); background:#000; display:none; }
+  small { display:block; margin-top:20px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>PC 화면 공유</h1>
+  <p>이 탭이 PC 화면을 폰으로 보냅니다. 버튼을 누르고 <b>전체 화면</b>을 선택하세요. 사용하는 동안 이 탭은 닫지 마세요.</p>
+  <button id="start">화면 공유 시작</button>
+  <ul>
+    <li id="s-server"><span>서버</span><span>연결 중…</span></li>
+    <li id="s-share"><span>화면 공유</span><span>꺼짐</span></li>
+    <li id="s-phone"><span>폰</span><span>기다리는 중</span></li>
+    <li id="s-stream"><span>전송</span><span>—</span></li>
+  </ul>
+  <video id="preview" muted autoplay playsinline></video>
+  <small>폰에서 열 주소와 QR 코드는 서버를 실행한 터미널에 표시됩니다.</small>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const setStatus = (id, text, ok) => {
+  const li = $(id);
+  li.lastElementChild.textContent = text;
+  li.classList.toggle('ok', Boolean(ok));
+};
+
+let ws = null;
+let stream = null;
+let pc = null;
+let phoneOn = false;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws?role=host`);
+  ws.onopen = () => setStatus('s-server', '연결됨', true);
+  ws.onclose = () => {
+    setStatus('s-server', '끊김 — 다시 연결 중…');
+    phoneOn = false;
+    closePeer();
+    setTimeout(connect, 1500);
+  };
+  ws.onmessage = async (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.t === 'client') {
+      phoneOn = msg.on;
+      setStatus('s-phone', phoneOn ? '연결됨' : '기다리는 중', phoneOn);
+      if (phoneOn) startPeer(); else closePeer();
+    } else if (msg.t === 'sig' && pc) {
+      try {
+        if (msg.data.sdp) await pc.setRemoteDescription(msg.data.sdp);
+        else if (msg.data.candidate) await pc.addIceCandidate(msg.data.candidate);
+      } catch (err) { console.warn(err); }
+    }
+  };
+}
+
+const signal = (data) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ t: 'sig', data }));
+
+function closePeer() {
+  if (pc) { pc.close(); pc = null; }
+  setStatus('s-stream', '—');
+}
+
+async function startPeer() {
+  closePeer();
+  if (!stream || !phoneOn) return;
+  const peer = pc = new RTCPeerConnection();
+  peer.onicecandidate = (e) => e.candidate && signal({ candidate: e.candidate });
+  peer.onconnectionstatechange = () => {
+    if (peer !== pc) return;
+    const s = peer.connectionState;
+    setStatus('s-stream', { connected: '전송 중', connecting: '연결 중…', failed: '실패 — 같은 와이파이인지 확인하세요' }[s] || s, s === 'connected');
+  };
+  const track = stream.getVideoTracks()[0];
+  track.contentHint = 'detail';
+  const sender = peer.addTrack(track, stream);
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = 12_000_000;
+    params.encodings[0].maxFramerate = 60;
+    await sender.setParameters(params);
+  } catch {}
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+  signal({ sdp: peer.localDescription });
+}
+
+$('start').onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 60 }, displaySurface: 'monitor' },
+      audio: false,
+    });
+  } catch (err) {
+    setStatus('s-share', '취소됨 또는 권한 없음');
+    return;
+  }
+  $('start').disabled = true;
+  $('start').textContent = '공유 중';
+  setStatus('s-share', '켜짐', true);
+  const preview = $('preview');
+  preview.srcObject = stream;
+  preview.style.display = 'block';
+  stream.getVideoTracks()[0].onended = () => {
+    stream = null;
+    closePeer();
+    preview.style.display = 'none';
+    $('start').disabled = false;
+    $('start').textContent = '화면 공유 시작';
+    setStatus('s-share', '꺼짐');
+  };
+  startPeer();
+};
+
+connect();
+</script>
+</body>
+</html>

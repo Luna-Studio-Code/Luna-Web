@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>fold-pc</title>
+<style>
+  :root {
+    --deck-hi: #e9e9ec;
+    --deck-lo: #c4c5ca;
+    --well: #0b0b0c;
+    --key: #1d1d20;
+    --key-top: #2a2a2e;
+    --key-down: #47474d;
+    --legend: #f1f1f3;
+    --legend-dim: #9c9ca3;
+    --latch: #f5a524;
+    --pad: #d6d7dc;
+    --pad-edge: #a9aab0;
+    --screen-h: 50dvh;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #000;
+    overscroll-behavior: none; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+  /* ---- 위쪽: PC 화면 ---- */
+  #screen {
+    position: relative; flex: 0 0 var(--screen-h); min-height: 0; background: #000;
+    padding-top: env(safe-area-inset-top);
+  }
+  #video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+  #status {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    padding: 24px; color: #d8d8dc; font-size: 15px; line-height: 1.6; background: #000;
+  }
+  #status[hidden] { display: none; }
+  #status b { display: block; color: #fff; font-size: 17px; margin-bottom: 4px; }
+
+  /* ---- 아래쪽: 키보드 + 트랙패드 ---- */
+  #deck {
+    flex: 1 1 0; min-height: 0; container-type: size;
+    display: flex; flex-direction: column; align-items: center; gap: 2.2cqh;
+    padding: 2.4cqh 2.4cqw calc(2.4cqh + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, var(--deck-hi), var(--deck-lo));
+  }
+  #keyboard {
+    flex: 0 0 60%; width: 100%; min-height: 0;
+    display: flex; flex-direction: column; gap: 0.9cqh;
+    padding: 1.1cqh 0.9cqw; border-radius: 2.2cqh; background: var(--well);
+    box-shadow: inset 0 0 0 1px #000, 0 1px 0 rgba(255,255,255,.6);
+  }
+  .row { flex: 1 1 0; min-height: 0; display: flex; gap: 0.7cqw; }
+  .row.fn { flex: 0.62 1 0; }
+  .key {
+    flex: var(--w, 1) 1 0; min-width: 0; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 1.3cqh; color: var(--legend);
+    background: linear-gradient(180deg, var(--key-top), var(--key));
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+    font-size: 3.5cqh; font-weight: 500; line-height: 1; white-space: nowrap; overflow: hidden;
+  }
+  .row.fn .key { font-size: 2.1cqh; color: var(--legend-dim); }
+  .key.word { font-size: 2.2cqh; color: #d4d4d9; }
+  .key.left { justify-content: flex-start; padding-left: 0.9cqw; }
+  .key.right { justify-content: flex-end; padding-right: 0.9cqw; }
+  .key.dual { flex-direction: column; gap: 0.5cqh; font-size: 2.9cqh; }
+  .key .alt { font-size: 2.2cqh; color: var(--legend-dim); }
+  .key.down { background: var(--key-down); }
+  .key.latched { box-shadow: inset 0 0 0 0.35cqh var(--latch); color: var(--latch); }
+  .arrows { flex: 3 1 0; min-width: 0; display: flex; gap: 0.7cqw; align-items: flex-end; }
+  .arrows .key { height: 50%; font-size: 1.9cqh; }
+  .arrows .stack { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; gap: 0.4cqh; }
+  .arrows .stack .key { flex: 1 1 0; height: auto; }
+
+  #trackpad {
+    flex: 1 1 0; min-height: 0; width: 56%;
+    border-radius: 2.2cqh; background: linear-gradient(180deg, #dcdde2, var(--pad));
+    box-shadow: inset 0 0 0 1px var(--pad-edge), inset 0 1px 0 rgba(255,255,255,.7);
+  }
+  #trackpad.active { background: linear-gradient(180deg, #d2d3d9, #c9cad0); }
+
+  /* 접힌 폴더블: 힌지 위는 화면, 힌지 아래는 키보드 */
+  @media (vertical-viewport-segments: 2) {
+    :root { --screen-h: env(viewport-segment-height 0 0); }
+    #deck { margin-top: calc(env(viewport-segment-top 0 1) - env(viewport-segment-bottom 0 0)); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="screen">
+    <video id="video" autoplay muted playsinline disablepictureinpicture></video>
+    <div id="status"><div><b>연결 중…</b><span></span></div></div>
+  </div>
+  <div id="deck">
+    <div id="keyboard"></div>
+    <div id="trackpad" aria-label="트랙패드"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const video = $('video');
+  const statusEl = $('status');
+  const token = new URLSearchParams(location.search).get('t') || '';
+
+  function setStatus(title, detail) {
+    if (!title) { statusEl.hidden = true; return; }
+    statusEl.hidden = false;
+    statusEl.querySelector('b').textContent = title;
+    statusEl.querySelector('span').textContent = detail || '';
+  }
+
+  // ---------- 서버 연결 ----------
+  let ws = null;
+  let pc = null;
+  let platform = 'win';
+  let replaced = false;
+
+  const send = (msg) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); };
+  const signal = (data) => send({ t: 'sig', data });
+
+  function connect() {
+    if (!token) {
+      setStatus('주소가 올바르지 않습니다', 'PC 터미널에 표시된 QR 코드나 주소로 다시 접속하세요.');
+      return;
+    }
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=client&token=${encodeURIComponent(token)}`);
+    let opened = false;
+    ws.onopen = () => { opened = true; };
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.t === 'hello') {
+        if (msg.platform !== platform) { platform = msg.platform; buildKeyboard(); }
+        hostState(msg.host);
+      } else if (msg.t === 'host') {
+        hostState(msg.on);
+      } else if (msg.t === 'sig') {
+        onSignal(msg.data);
+      }
+    };
+    ws.onclose = (ev) => {
+      closePeer();
+      if (ev.code === 4000) {
+        replaced = true;
+        setStatus('다른 기기에서 접속했습니다', '이 기기에서 다시 쓰려면 화면을 눌러 주세요.');
+        return;
+      }
+      setStatus(opened ? '연결이 끊겼습니다' : 'PC에 연결할 수 없습니다',
+        opened ? '다시 연결하는 중…' : '서버가 켜져 있는지, 같은 와이파이인지 확인하세요. 다시 시도하는 중…');
+      setTimeout(connect, 1500);
+    };
+  }
+
+  statusEl.addEventListener('pointerdown', () => {
+    if (replaced) { replaced = false; setStatus('연결 중…'); connect(); }
+  });
+
+  function hostState(on) {
+    if (!on) {
+      closePeer();
+      setStatus('PC에서 화면 공유를 시작하세요', 'PC 브라우저에 열린 페이지에서 "화면 공유 시작"을 누르면 여기에 화면이 나타납니다.');
+    } else if (!pc) {
+      setStatus('화면을 기다리는 중…', 'PC에서 "화면 공유 시작"을 눌러 주세요.');
+    }
+  }
+
+  // ---------- WebRTC: PC 화면 수신 ----------
+  function closePeer() {
+    if (pc) { pc.close(); pc = null; }
+    video.srcObject = null;
+  }
+
+  // PC 브라우저는 자기 주소를 xxxx.local 로 가려서 알려 주는데, 폰이 이를 못 푸는 경우가 있다.
+  // 우리는 PC의 실제 주소(지금 접속한 주소)를 알고 있으므로 그것으로 바꾼 후보도 함께 넣는다.
+  function localAlternative(cand) {
+    if (!cand || !cand.candidate || !/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)) return null;
+    const parts = cand.candidate.split(' ');
+    if (parts.length < 8 || !parts[4].endsWith('.local')) return null;
+    parts[4] = location.hostname;
+    return { ...cand, candidate: parts.join(' ') };
+  }
+
+  async function onSignal(data) {
+    try {
+      if (data.sdp && data.sdp.type === 'offer') {
+        closePeer();
+        const peer = pc = new RTCPeerConnection();
+        peer.onicecandidate = (e) => e.candidate && signal({ candidate: e.candidate });
+        peer.ontrack = (e) => {
+          try { e.receiver.jitterBufferTarget = 0; } catch {}
+          try { e.receiver.playoutDelayHint = 0; } catch {}
+          video.srcObject = e.streams[0] || new MediaStream([e.track]);
+          video.play().catch(() => {});
+        };
+        peer.onconnectionstatechange = () => {
+          if (peer !== pc) return;
+          if (peer.connectionState === 'connected') setStatus(null);
+          else if (peer.connectionState === 'failed') {
+            setStatus('화면 연결에 실패했습니다', '폰과 PC가 같은 와이파이에 있는지 확인하세요.');
+          }
+        };
+        setStatus('화면 연결 중…');
+        await peer.setRemoteDescription(data.sdp);
+        await peer.setLocalDescription(await peer.createAnswer());
+        signal({ sdp: peer.localDescription });
+      } else if (data.candidate && pc) {
+        const alt = localAlternative(data.candidate);
+        await pc.addIceCandidate(data.candidate).catch(() => {});
+        if (alt) await pc.addIceCandidate(alt).catch(() => {});
+      }
+    } catch (err) {
+      console.warn(err);
+    }
+  }
+
+  const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
+
+  // ---------- 키보드 ----------
+  const MODS = new Set(['shift', 'right_shift', 'control', 'alt', 'right_alt', 'cmd']);
+  const L = (k, label, extra) => ({ k, label, ...extra });
+  const chars = (s) => [...s].map((c) => L(c, c.toUpperCase()));
+  const dual = (k, top) => L(k, k, { alt: top });
+
+  function layout() {
+    const mac = platform === 'mac';
+    return [
+      { cls: 'fn', keys: [
+        L('escape', 'esc', { w: 1.3 }),
+        ...Array.from({ length: 12 }, (_, i) => L(`f${i + 1}`, `F${i + 1}`)),
+        L('@fullscreen', '⛶', { w: 1.3 }),
+      ] },
+      { keys: [
+        dual('`', '~'), dual('1', '!'), dual('2', '@'), dual('3', '#'), dual('4', '$'), dual('5', '%'),
+        dual('6', '^'), dual('7', '&'), dual('8', '*'), dual('9', '('), dual('0', ')'), dual('-', '_'), dual('=', '+'),
+        L('backspace', mac ? 'delete' : '⌫', { w: 1.6, cls: mac ? 'word right' : 'right' }),
+      ] },
+      { keys: [
+        L('tab', 'tab', { w: 1.6, cls: 'word left' }),
+        ...chars('qwertyuiop'), dual('[', '{'), dual(']', '}'), dual('\\', '|'),
+      ] },
+      { keys: [
+        L('caps_lock', 'caps', { w: 1.9, cls: 'word left' }),
+        ...chars('asdfghjkl'), dual(';', ':'), dual("'", '"'),
+        L('enter', mac ? 'return' : 'enter', { w: 1.9, cls: 'word right' }),
+      ] },
+      { keys: [
+        L('shift', 'shift', { w: 2.45, cls: 'word left' }),
+        ...chars('zxcvbnm'), dual(',', '<'), dual('.', '>'), dual('/', '?'),
+        L('right_shift', 'shift', { w: 2.45, cls: 'word right' }),
+      ] },
+      { keys: [
+        L('control', mac ? 'control' : 'ctrl', { w: 1.3, cls: 'word' }),
+        ...(mac
+          ? [L('alt', 'option', { w: 1.3, cls: 'word' }), L('cmd', '⌘', { w: 1.5 })]
+          : [L('cmd', '⊞', { w: 1.3 }), L('alt', 'alt', { w: 1.3, cls: 'word' })]),
+        L('space', '', { w: 5.6 }),
+        L('@hangul', '한/영', { w: 1.3, cls: 'word' }),
+        L('right_alt', mac ? 'option' : 'alt', { w: 1.3, cls: 'word' }),
+        { arrows: true },
+      ] },
+    ];
+  }
+
+  const held = new Map();       // 눌린 키 → { el, repeat }
+  const latched = new Set();    // 한 번 톡 쳐서 고정해 둔 보조키
+  let modUsed = false;
+
+  function keyEl(def) {
+    const el = document.createElement('div');
+    el.className = `key ${def.cls || ''} ${def.alt ? 'dual' : ''}`;
+    if (def.w) el.style.setProperty('--w', def.w);
+    if (def.alt) {
+      const a = document.createElement('span');
+      a.className = 'alt';
+      a.textContent = def.alt;
+      el.appendChild(a);
+    }
+    el.appendChild(document.createTextNode(def.label));
+    el.dataset.k = def.k;
+    return el;
+  }
+
+  function buildKeyboard() {
+    const kb = $('keyboard');
+    kb.textContent = '';
+    for (const row of layout()) {
+      const r = document.createElement('div');
+      r.className = `row ${row.cls || ''}`;
+      for (const def of row.keys) {
+        if (!def.arrows) { r.appendChild(keyEl(def)); continue; }
+        const box = document.createElement('div');
+        box.className = 'arrows';
+        const stack = document.createElement('div');
+        stack.className = 'stack';
+        stack.append(keyEl(L('up', '▲')), keyEl(L('down', '▼')));
+        box.append(keyEl(L('left', '◀')), stack, keyEl(L('right', '▶')));
+        r.appendChild(box);
+      }
+      kb.appendChild(r);
+    }
+  }
+
+  function releaseLatched() {
+    for (const k of latched) {
+      send({ t: 'key', k, d: 0 });
+      const el = document.querySelector(`.key[data-k="${k}"]`);
+      if (el) el.classList.remove('latched');
+    }
+    latched.clear();
+  }
+
+  function keyDown(el, pointerId) {
+    const k = el.dataset.k;
+    if (held.has(pointerId)) return;
+    buzz(6);
+    el.classList.add('down');
+    const entry = { el, k, at: performance.now(), timer: 0 };
+    held.set(pointerId, entry);
+
+    if (k === '@fullscreen') return;
+    if (k === '@hangul') { send({ t: 'hangul' }); return; }
+
+    if (MODS.has(k)) {
+      if (latched.has(k)) {          // 고정된 보조키를 다시 누르면 해제
+        latched.delete(k);
+        el.classList.remove('latched');
+        send({ t: 'key', k, d: 0 });
+        entry.skip = true;
+        return;
+      }
+      modUsed = false;
+      send({ t: 'key', k, d: 1 });
+      return;
+    }
+
+    modUsed = true;
+    send({ t: 'key', k, d: 1 });
+    // 길게 누르면 반복 입력
+    entry.timer = setTimeout(function repeat() {
+      send({ t: 'key', k, d: 1 });
+      entry.timer = setTimeout(repeat, 45);
+    }, 420);
+  }
+
+  function keyUp(pointerId) {
+    const entry = held.get(pointerId);
+    if (!entry) return;
+    held.delete(pointerId);
+    clearTimeout(entry.timer);
+    const { el, k } = entry;
+    el.classList.remove('down');
+
+    if (k === '@fullscreen') { toggleFullscreen(); return; }
+    if (k === '@hangul') return;
+
+    if (MODS.has(k)) {
+      if (entry.skip) return;
+      // 다른 키와 함께 쓰지 않고 짧게 톡 치면 다음 키 한 번에 적용되도록 고정
+      if (!modUsed && performance.now() - entry.at < 350) {
+        latched.add(k);
+        el.classList.add('latched');
+      } else {
+        send({ t: 'key', k, d: 0 });
+      }
+      return;
+    }
+    send({ t: 'key', k, d: 0 });
+    releaseLatched();
+  }
+
+  const kb = $('keyboard');
+  kb.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.key');
+    if (!el) return;
+    e.preventDefault();
+    try { kb.setPointerCapture(e.pointerId); } catch {}
+    keyDown(el, e.pointerId);
+  });
+  for (const type of ['pointerup', 'pointercancel']) {
+    kb.addEventListener(type, (e) => keyUp(e.pointerId));
+  }
+
+  function toggleFullscreen() {
+    const d = document;
+    const root = d.documentElement;
+    if (d.fullscreenElement || d.webkitFullscreenElement) {
+      (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    } else {
+      const req = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (req) Promise.resolve(req.call(root)).catch(() => {});
+    }
+  }
+
+  // ---------- 트랙패드 ----------
+  const pad = $('trackpad');
+  const TAP_MS = 220;
+  const TAP_MOVE = 9;
+  const DOUBLE_MS = 300;
+
+  const touches = new Map();  // id → { x, y }
+  let gesture = null;         // 현재 제스처 상태
+  let lastTapAt = 0;
+  let pendMove = { dx: 0, dy: 0 };
+  let pendScroll = { dx: 0, dy: 0 };
+  let flushQueued = false;
+
+  function queueFlush() {
+    if (flushQueued) return;
+    flushQueued = true;
+    requestAnimationFrame(() => {
+      flushQueued = false;
+      if (pendMove.dx || pendMove.dy) { send({ t: 'm', ...pendMove }); pendMove = { dx: 0, dy: 0 }; }
+      if (pendScroll.dx || pendScroll.dy) { send({ t: 'scroll', ...pendScroll }); pendScroll = { dx: 0, dy: 0 }; }
+    });
+  }
+
+  // 천천히 움직이면 정밀하게, 빠르게 움직이면 멀리 가도록 가속
+  function accelerate(dx, dy, dt) {
+    const speed = Math.hypot(dx, dy) / Math.max(dt, 1);   // px/ms
+    const gain = 1.3 + Math.min(3.2, speed * 2.4);
+    return { dx: dx * gain, dy: dy * gain };
+  }
+
+  pad.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const now = performance.now();
+    for (const t of e.changedTouches) touches.set(t.identifier, { x: t.clientX, y: t.clientY });
+    if (!gesture) {
+      gesture = {
+        startAt: now, moved: 0, maxFingers: 0, lastAt: now, dragging: false,
+        // 탭 직후 다시 대고 움직이면 드래그 (탭-드래그)
+        dragArmed: now - lastTapAt < DOUBLE_MS,
+      };
+      pad.classList.add('active');
+    }
+    gesture.maxFingers = Math.max(gesture.maxFingers, touches.size);
+  }, { passive: false });
+
+  pad.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!gesture) return;
+    const now = performance.now();
+    let sx = 0, sy = 0, n = 0;
+    for (const t of e.changedTouches) {
+      const prev = touches.get(t.identifier);
+      if (!prev) continue;
+      sx += t.clientX - prev.x;
+      sy += t.clientY - prev.y;
+      n++;
+      prev.x = t.clientX;
+      prev.y = t.clientY;
+    }
+    if (!n) return;
+    const dx = sx / n, dy = sy / n;
+    gesture.moved += Math.hypot(dx, dy);
+    if (gesture.moved < 3) return;   // 탭할 때의 미세한 떨림은 무시
+
+    if (touches.size >= 2) {
+      pendScroll.dx += dx;
+      pendScroll.dy += dy;
+    } else {
+      if (gesture.dragArmed && !gesture.dragging && gesture.moved > TAP_MOVE) {
+        gesture.dragging = true;
+        send({ t: 'btn', b: 'left', d: 1 });
+        buzz(10);
+      }
+      const a = accelerate(dx, dy, now - gesture.lastAt);
+      pendMove.dx += a.dx;
+      pendMove.dy += a.dy;
+    }
+    gesture.lastAt = now;
+    queueFlush();
+  }, { passive: false });
+
+  function padEnd(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches.delete(t.identifier);
+    if (touches.size || !gesture) return;
+    const g = gesture;
+    gesture = null;
+    pad.classList.remove('active');
+    const now = performance.now();
+
+    if (g.dragging) {
+      send({ t: 'btn', b: 'left', d: 0 });
+      releaseLatched();
+      return;
+    }
+    const isTap = e.type === 'touchend' && now - g.startAt < TAP_MS && g.moved < TAP_MOVE;
+    if (!isTap) return;
+    buzz(8);
+    if (g.maxFingers >= 2) {
+      send({ t: 'click', b: 'right' });
+      lastTapAt = 0;
+    } else if (g.dragArmed) {
+      send({ t: 'click', b: 'left', double: true });   // 두 번 탭 = 더블클릭
+      lastTapAt = 0;
+    } else {
+      send({ t: 'click', b: 'left' });
+      lastTapAt = now;
+    }
+    releaseLatched();
+  }
+  pad.addEventListener('touchend', padEnd, { passive: false });
+  pad.addEventListener('touchcancel', padEnd, { passive: false });
+
+  // ---------- 화면을 직접 터치: 그 자리를 클릭 ----------
+  let screenTap = null;
+  let lastScreenTapAt = 0;
+
+  function videoPoint(clientX, clientY) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const r = video.getBoundingClientRect();
+    const scale = Math.min(r.width / vw, r.height / vh);
+    const w = vw * scale, h = vh * scale;
+    const x = (clientX - (r.left + (r.width - w) / 2)) / w;
+    const y = (clientY - (r.top + (r.height - h) / 2)) / h;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return { x, y };
+  }
+
+  video.addEventListener('pointerdown', (e) => {
+    screenTap = { x: e.clientX, y: e.clientY, at: performance.now() };
+  });
+  video.addEventListener('pointerup', (e) => {
+    const s = screenTap;
+    screenTap = null;
+    if (!s) return;
+    const now = performance.now();
+    if (now - s.at > 350 || Math.hypot(e.clientX - s.x, e.clientY - s.y) > 12) return;
+    const p = videoPoint(e.clientX, e.clientY);
+    if (!p) return;
+    buzz(8);
+    send({ t: 'abs', x: p.x, y: p.y });
+    const double = now - lastScreenTapAt < DOUBLE_MS;
+    send({ t: 'click', b: 'left', double });
+    lastScreenTapAt = double ? 0 : now;
+    releaseLatched();
+  });
+
+  // 화면이 꺼지지 않게
+  async function keepAwake() {
+    try { if (navigator.wakeLock) await navigator.wakeLock.request('screen'); } catch {}
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+  buildKeyboard();
+  keepAwake();
+  connect();
+})();
+</script>
+</body>
+</html>
